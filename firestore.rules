@@ -1,0 +1,94 @@
+rules_version = '2';
+
+// Tempel seluruh isi file ini di Firebase console → Firestore Database → Rules → Publish.
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function isAdmin() {
+      return signedIn()
+        && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
+    }
+
+    function uploadsAllowed() {
+      return exists(/databases/$(database)/documents/config/site)
+        && get(/databases/$(database)/documents/config/site).data.get('allowUserUploads', false) == true;
+    }
+
+    // Profil: bisa dilihat semua orang.
+    match /users/{uid} {
+      allow read: if true;
+
+      // Akun pertama di dunia jadi admin: profil admin hanya boleh dibuat bersamaan dengan
+      // dokumen config/admin (yang hanya bisa dibuat SEKALI). Selain itu hanya role "user".
+      allow create: if signedIn()
+        && request.auth.uid == uid
+        && request.resource.data.keys().hasOnly(['displayName', 'photoURL', 'role', 'createdAt'])
+        && request.resource.data.displayName is string
+        && request.resource.data.displayName.size() <= 100
+        && (
+          request.resource.data.role == 'user'
+          || (
+            request.resource.data.role == 'admin'
+            && !exists(/databases/$(database)/documents/config/admin)
+            && getAfter(/databases/$(database)/documents/config/admin).data.uid == uid
+          )
+        );
+
+      // Role tidak boleh diubah dari browser.
+      allow update: if signedIn()
+        && request.auth.uid == uid
+        && request.resource.data.role == resource.data.role
+        && request.resource.data.keys().hasOnly(['displayName', 'photoURL', 'role', 'createdAt']);
+
+      allow delete: if false;
+    }
+
+    // Penanda "admin sudah ada". Hanya bisa dibuat sekali, tidak bisa dibaca/diubah.
+    match /config/admin {
+      allow read: if false;
+      allow create: if signedIn()
+        && request.resource.data.keys().hasOnly(['uid'])
+        && request.resource.data.uid == request.auth.uid;
+      allow update, delete: if false;
+    }
+
+    // Pengaturan situs: semua orang boleh baca, hanya admin yang boleh mengubah.
+    match /config/site {
+      allow read: if true;
+      allow create, update: if isAdmin()
+        && request.resource.data.keys().hasOnly(['defaultBackground', 'allowUserUploads']);
+      allow delete: if false;
+    }
+
+    // Background yang dibagikan lewat link.
+    match /backgrounds/{id} {
+      allow read: if true;
+
+      // Tambah: admin, atau semua member kalau admin menyalakan "allowUserUploads".
+      allow create: if signedIn()
+        && (isAdmin() || uploadsAllowed())
+        && request.resource.data.uploaderId == request.auth.uid
+        && request.resource.data.keys().hasOnly(
+             ['title', 'description', 'url', 'mediaType', 'uploaderId', 'uploaderName', 'uploaderPhoto', 'createdAt'])
+        && request.resource.data.title is string
+        && request.resource.data.title.size() >= 1
+        && request.resource.data.title.size() <= 80
+        && request.resource.data.description is string
+        && request.resource.data.description.size() <= 300
+        && request.resource.data.url is string
+        && request.resource.data.url.matches('https://.*')
+        && request.resource.data.url.size() <= 1000
+        && request.resource.data.mediaType in ['video', 'image'];
+
+      // Hapus: hanya yang menambahkan, atau admin (bisa hapus semua).
+      allow delete: if signedIn()
+        && (resource.data.uploaderId == request.auth.uid || isAdmin());
+
+      allow update: if false;
+    }
+  }
+}
