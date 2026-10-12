@@ -12,7 +12,7 @@ import {
 } from 'lucide-react';
 import PageShell from '../components/PageShell';
 import { hrefFor } from '../routes';
-import { glassPanelClass, inputClass, primaryButtonClass, secondaryButtonClass } from '../styles';
+import { glassPanelClass, inputClass, secondaryButtonClass } from '../styles';
 
 type ServerKey = 'amprem1' | 'amprem2';
 type Mode = 'send' | 'verify' | 'auto';
